@@ -154,9 +154,8 @@
         </div>
         <ul id="recentsList"></ul>
     </div>
-
-    <script>
-        // Service Worker Registration for PWA features
+    </div> <script>
+        // 1. Service Worker Registered ONLY ONCE here
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('sw.js')
                 .then(() => console.log('Service Worker Registered'));
@@ -173,44 +172,44 @@
         let isRecording = false;
         let recentNotes = JSON.parse(localStorage.getItem('recentNotes')) || [];
 
-        // Check for Web Speech API capability
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
         if (!SpeechRecognition) {
-            alert("Web Speech API is not supported in this browser. Please use Chrome on Android.");
+            alert("Web Speech API is not supported here. Use Chrome on Android.");
         } else {
             recognition = new SpeechRecognition();
-            recognition.continuous = true;
-            recognition.interimResults = true;
-            recognition.lang = 'en-AU'; // Set default voice standard to Australian English
+            
+            // FIX: Continuous off to stop the 3x repeating glitch
+            recognition.continuous = false; 
+            recognition.interimResults = false; 
+            recognition.lang = 'en-AU';
 
             recognition.onresult = (event) => {
-                let interimTranscript = '';
-                let finalTranscript = '';
+                const currentResultIndex = event.resultIndex;
+                const transcript = event.results[currentResultIndex][0].transcript;
 
-                for (let i = event.resultIndex; i < event.results.length; ++i) {
-                    if (event.results[i].isFinal) {
-                        finalTranscript += event.results[i][0].transcript;
-                    } else {
-                        interimTranscript += event.results[i][0].transcript;
-                    }
-                }
-                if(finalTranscript) {
-                    notepad.innerText += finalTranscript + ' ';
+                if (event.results[currentResultIndex].isFinal) {
+                    notepad.innerText += transcript.trim() + ' ';
                     updateButtonStates();
                 }
             };
 
             recognition.onerror = (event) => {
-                console.error("Speech error: ", event.error);
-                stopListening();
+                if (event.error !== 'no-speech') {
+                    console.error("Speech error: ", event.error);
+                    stopListening();
+                }
             };
 
             recognition.onend = () => {
-                if (isRecording) recognition.start(); // Keep alive if unexpected dropout happens
+                // Safely restarts the mic capture loop without cloning text streams
+                if (isRecording) {
+                    recognition.start();
+                }
             };
         }
 
-        // Recording controls
+        // Controls
         recordBtn.addEventListener('click', () => {
             if (!recognition) return;
             if (isRecording) {
@@ -241,10 +240,9 @@
             saveBtn.disabled = !hasText;
         }
 
-        // Track text changes manually if typed inside contenteditable box
         notepad.addEventListener('input', updateButtonStates);
 
-        // Copy Feature
+        // Copy
         copyBtn.addEventListener('click', async () => {
             const text = notepad.innerText;
             try {
@@ -255,7 +253,7 @@
             }
         });
 
-        // Save Feature (Keep 5)
+        // Save History (Keep 5)
         saveBtn.addEventListener('click', () => {
             const text = notepad.innerText.trim();
             if (!text) return;
@@ -266,7 +264,6 @@
             alert("Note saved to recents!");
         });
 
-        // Load / UI Rendering for Recents
         function renderRecents() {
             recentsList.innerHTML = '';
             recentNotes.forEach(note => {
@@ -287,8 +284,9 @@
             renderRecents();
         });
 
-        // Init
         renderRecents();
     </script>
 </body>
 </html>
+    
+            
