@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voice Notes</title>
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#4CAF50">
+    <style>
+        :root {
+            --bg-color: #f5f5f5;
+            --card-color: #ffffff;
+            --text-color: #333333;
+            --primary: #4CAF50;
+            --primary-disabled: #a8dba8;
+            --stop: #f44336;
+            --copy: #2196F3;
+            --save: #ff9800;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            box-sizing: border-box;
+        }
+
+        h1 {
+            text-align: center;
+            font-size: 1.5rem;
+            margin: 0 0 16px 0;
+        }
+
+        #notepad {
+            flex: 1;
+            background: var(--card-color);
+            border-radius: 12px;
+            padding: 16px;
+            font-size: 1.1rem;
+            line-height: 1.5;
+            overflow-y: auto;
+            border: 1px solid #e0e0e0;
+            margin-bottom: 16px;
+            white-space: pre-wrap;
+        }
+
+        #notepad:empty::before {
+            content: "Tap 'Record' and start speaking...";
+            color: #999;
+        }
+
+        .btn-container {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        button {
+            flex: 1;
+            border: none;
+            padding: 12px;
+            border-radius: 8px;
+            color: white;
+            font-size: 1rem;
+            font-weight: bold;
+            cursor: pointer;
+            transition: opacity 0.2s;
+        }
+
+        button:active {
+            opacity: 0.8;
+        }
+
+        button:disabled {
+            background-color: #ccc !important;
+            cursor: not-allowed;
+        }
+
+        #recordBtn { background-color: var(--primary); }
+        #recordBtn.recording { background-color: var(--stop); }
+        #copyBtn { background-color: var(--copy); }
+        #saveBtn { background-color: var(--save); }
+
+        .recents-container {
+            background: #eef0f2;
+            border-radius: 12px;
+            padding: 16px;
+            max-height: 200px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .recents-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-weight: bold;
+            margin-bottom: 10px;
+            font-size: 0.9rem;
+            color: #666;
+        }
+
+        .clear-btn {
+            color: var(--stop);
+            background: none;
+            border: none;
+            padding: 0;
+            font-size: 0.9rem;
+            font-weight: normal;
+            flex: none;
+        }
+
+        #recentsList {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            overflow-y: auto;
+        }
+
+        .recent-item {
+            background: var(--card-color);
+            padding: 10px;
+            border-radius: 6px;
+            margin-bottom: 8px;
+            font-size: 0.9rem;
+            border-left: 4px solid var(--save);
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            overflow: hidden;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Voice Notepad PWA</h1>
+    
+    <div id="notepad" contenteditable="true"></div>
+
+    <div class="btn-container">
+        <button id="recordBtn">Record</button>
+        <button id="copyBtn" disabled>Copy</button>
+        <button id="saveBtn" disabled>Save</button>
+    </div>
+
+    <div class="recents-container">
+        <div class="recents-header">
+            <span>Recents (Last 5)</span>
+            <button class="clear-btn" id="clearBtn">Clear</button>
+        </div>
+        <ul id="recentsList"></ul>
+    </div>
+
+    <script>
+        // Service Worker Registration for PWA features
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('sw.js')
+                .then(() => console.log('Service Worker Registered'));
+        }
+
+        const notepad = document.getElementById('notepad');
+        const recordBtn = document.getElementById('recordBtn');
+        const copyBtn = document.getElementById('copyBtn');
+        const saveBtn = document.getElementById('saveBtn');
+        const recentsList = document.getElementById('recentsList');
+        const clearBtn = document.getElementById('clearBtn');
+
+        let recognition;
+        let isRecording = false;
+        let recentNotes = JSON.parse(localStorage.getItem('recentNotes')) || [];
+
+        // Check for Web Speech API capability
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognition) {
+            alert("Web Speech API is not supported in this browser. Please use Chrome on Android.");
+        } else {
+            recognition = new SpeechRecognition();
+            recognition.continuous = true;
+            recognition.interimResults = true;
+            recognition.lang = 'en-AU'; // Set default voice standard to Australian English
+
+            recognition.onresult = (event) => {
+                let interimTranscript = '';
+                let finalTranscript = '';
+
+                for (let i = event.resultIndex; i < event.results.length; ++i) {
+                    if (event.results[i].isFinal) {
+                        finalTranscript += event.results[i][0].transcript;
+                    } else {
+                        interimTranscript += event.results[i][0].transcript;
+                    }
+                }
+                if(finalTranscript) {
+                    notepad.innerText += finalTranscript + ' ';
+                    updateButtonStates();
+                }
+            };
+
+            recognition.onerror = (event) => {
+                console.error("Speech error: ", event.error);
+                stopListening();
+            };
+
+            recognition.onend = () => {
+                if (isRecording) recognition.start(); // Keep alive if unexpected dropout happens
+            };
+        }
+
+        // Recording controls
+        recordBtn.addEventListener('click', () => {
+            if (!recognition) return;
+            if (isRecording) {
+                stopListening();
+            } else {
+                startListening();
+            }
+        });
+
+        function startListening() {
+            isRecording = true;
+            recordBtn.innerText = "Stop";
+            recordBtn.classList.add('recording');
+            recognition.start();
+        }
+
+        function stopListening() {
+            isRecording = false;
+            recordBtn.innerText = "Record";
+            recordBtn.classList.remove('recording');
+            recognition.stop();
+            updateButtonStates();
+        }
+
+        function updateButtonStates() {
+            const hasText = notepad.innerText.trim().length > 0;
+            copyBtn.disabled = !hasText;
+            saveBtn.disabled = !hasText;
+        }
+
+        // Track text changes manually if typed inside contenteditable box
+        notepad.addEventListener('input', updateButtonStates);
+
+        // Copy Feature
+        copyBtn.addEventListener('click', async () => {
+            const text = notepad.innerText;
+            try {
+                await navigator.clipboard.writeText(text);
+                alert("Copied to clipboard!");
+            } catch (err) {
+                alert("Failed to copy text.");
+            }
+        });
+
+        // Save Feature (Keep 5)
+        saveBtn.addEventListener('click', () => {
+            const text = notepad.innerText.trim();
+            if (!text) return;
+
+            recentNotes = [text, ...recentNotes].slice(0, 5);
+            localStorage.setItem('recentNotes', JSON.stringify(recentNotes));
+            renderRecents();
+            alert("Note saved to recents!");
+        });
+
+        // Load / UI Rendering for Recents
+        function renderRecents() {
+            recentsList.innerHTML = '';
+            recentNotes.forEach(note => {
+                const li = document.createElement('li');
+                li.className = 'recent-item';
+                li.innerText = note;
+                li.addEventListener('click', () => {
+                    notepad.innerText = note;
+                    updateButtonStates();
+                });
+                recentsList.appendChild(li);
+            });
+        }
+
+        clearBtn.addEventListener('click', () => {
+            recentNotes = [];
+            localStorage.removeItem('recentNotes');
+            renderRecents();
+        });
+
+        // Init
+        renderRecents();
+    </script>
+</body>
+</html>
